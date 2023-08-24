@@ -9,9 +9,13 @@ RUN microdnf -y install \
     git-core \
     python3 \
     python3-pip \
+    nodejs \
+    nodejs-npm \
     && microdnf clean all
 
 COPY . .
+
+RUN cd npm && npm install corepack
 
 RUN pip3 install -r requirements.txt --no-deps --no-cache-dir --require-hashes && \
     pip3 install --no-cache-dir -e . && \
