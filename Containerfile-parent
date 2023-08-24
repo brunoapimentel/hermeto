@@ -1,0 +1,15 @@
+FROM registry.fedoraproject.org/fedora-minimal:38
+LABEL maintainer="Red Hat"
+
+WORKDIR /src
+RUN microdnf -y install \
+    --setopt install_weak_deps=0 \
+    --nodocs \
+    golang \
+    git-core \
+    python3 \
+    python3-pip \
+    python3-devel \
+    nodejs \
+    nodejs-npm \
+    && microdnf clean all
