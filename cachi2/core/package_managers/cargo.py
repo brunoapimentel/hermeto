@@ -16,7 +16,7 @@ from cachi2.core.models.input import CargoPackageInput, Request
 from cachi2.core.models.output import Component, ProjectFile, RequestOutput
 from cachi2.core.package_managers.general import download_binary_file
 from cachi2.core.rooted_path import RootedPath
-from cachi2.core.scm import get_repo_id
+from cachi2.core.scm import clone_as_tarball, get_repo_id
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,9 @@ def fetch_cargo_source(request: Request) -> RequestOutput:
 
             [source.local]
             directory = "${output_dir}/deps/cargo"
+
+            [net]
+            offline = true
             """
         ),
     )
@@ -73,20 +76,28 @@ def _resolve_cargo(source_dir: Path, output_dir: Path, package: CargoPackageInpu
 
     purl = _generate_purl_main_package(pkg_name, pkg_version, source_dir)
 
-    dependencies = []
+    cargo_dependencies = []
+    git_dependencies = []
     lock_file = app_path / (package.lock_file or DEFAULT_LOCK_FILE)
 
     cargo_lock_dict = tomli.load(lock_file.open("rb"))
+    log.info(f"Number of dependencies: {len(cargo_lock_dict['package'])}")
+
     for dependency in cargo_lock_dict["package"]:
         # assuming packages w/o checksum/source are either sub-packages or the package
         # itself
         if {"checksum", "source"} <= dependency.keys():
-            dependencies.append(dependency)
+            cargo_dependencies.append(dependency)
+        elif "source" in dependency.keys() and dependency["source"].startswith("git+"):
+            git_dependencies.append(dependency)
 
-    dependencies = _download_cargo_dependencies(output_dir, dependencies)
+    fetched_dependencies = []
+    fetched_dependencies.extend(_download_cargo_dependencies(output_dir, cargo_dependencies))
+    fetched_dependencies.extend(_download_git_dependencies(output_dir, git_dependencies))
+
     return {
         "package": {"name": pkg_name, "version": pkg_version, "type": "cargo", "purl": purl},
-        "dependencies": dependencies,
+        "dependencies": fetched_dependencies,
         "lock_file": lock_file,
     }
 
@@ -127,6 +138,57 @@ def _download_cargo_dependencies(
     return downloads
 
 
+def _treat_git_url(raw_url: str) -> (str, str):
+    # assuming the url follow the format git+https://github.com/org/repo?rev=hash
+    url = urllib.parse.urlparse(raw_url)
+    scheme = url.scheme.replace("git+", "")
+
+    # TODO: revisit getting the ref using fragment, it probably won't work if the url is
+    # formed differently
+    return f"{scheme}://{url.netloc}{url.path}", url.fragment
+
+
+def _download_git_dependencies(
+    output_path: RootedPath, git_dependencies: list[dict]
+) -> list[dict[str, Any]]:
+    downloads = []
+
+    for dep in git_dependencies:
+        url, ref = _treat_git_url(dep["source"])
+
+        dep_name = dep["name"]
+        dep_version = dep["version"]
+        download_path = Path(
+            output_path.join_within_root(f"deps/cargo/{dep_name}-{dep_version}.crate")
+        )
+        download_path.parent.mkdir(exist_ok=True, parents=True)
+
+        clone_as_tarball(url=url, ref=ref, to_path=download_path)
+
+        checksums = generate_cargo_checksum(download_path)
+        with tarfile.open(download_path) as tarball:
+            folder_name = tarball.getnames()[0].split("/")[0]
+            tarball.extractall(download_path.parent)
+            Path(download_path.parent / "app").rename(f"{download_path.parent}/{dep_name}-{dep_version}")
+        
+        cargo_checksum = download_path.parent / f"{dep_name}-{dep_version}" / ".cargo-checksum.json"
+        json.dump(checksums, cargo_checksum.open("w"))
+
+        downloads.append(
+            {
+                "package": dep_name,
+                "name": dep_name,
+                "version": dep_version,
+                "path": download_path,
+                "type": "cargo",
+                "dev": False,
+                "kind": "vcs",
+            }
+        )
+
+    return downloads
+
+
 def _calc_sha256(content: bytes):
     return hashlib.sha256(content).hexdigest()
 
@@ -147,8 +209,21 @@ def generate_cargo_checksum(crate_path: Path):
     checksums = {"package": _calc_sha256(crate_path.read_bytes()), "files": {}}
     tarball = tarfile.open(crate_path)
     for tarmember in tarball.getmembers():
-        name = tarmember.name.split("/", 1)[1]  # ignore folder name
-        checksums["files"][name] = _calc_sha256(tarball.extractfile(tarmember.name).read())
+        parts = tarmember.name.split("/", 1)
+
+        # is the root folder
+        if len(parts) < 2:
+            continue
+
+        name = parts[1] # ignore folder name
+
+        file = tarball.extractfile(tarmember.name)
+
+        # is a folder
+        if not file:
+            continue
+
+        checksums["files"][name] = _calc_sha256(file.read())
     tarball.close()
     return checksums
 
