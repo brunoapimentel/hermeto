@@ -568,9 +568,9 @@ pyarn==0.3.0 \
     --hash=sha256:8f799d94a9b2fd4bd54185149d8745187c7ededcde98576ff70bf0823fd8a710 \
     --hash=sha256:e8eaed3ae80c1891a8ea7f6b7538c049a79dd7e7d3b4279f275699b3477b38c2
     # via hermeto (pyproject.toml)
-pydantic==2.10.6 \
-    --hash=sha256:427d664bf0b8a2b34ff5dd0f5a18df00591adcee7198fbd71981054cef37b584 \
-    --hash=sha256:ca5daa827cce33de7a42be142548b0096bf05a7e7b365aebfa5f8eeec7128236
+pydantic==2.11.2 \
+    --hash=sha256:2138628e050bd7a1e70b91d4bf4a91167f4ad76fdb83209b107c8d84b854917e \
+    --hash=sha256:7f17d25846bcdf89b670a86cdfe7b29a9f1c9ca23dee154221c9aa81845cfca7
     # via
     #   hermeto (pyproject.toml)
     #   pypi-simple
