@@ -26,6 +26,13 @@ spec:
     value: quay.io/redhat-user-workloads/rh-hermeto-tenant/hermeto:{{revision}}
   - name: dockerfile
     value: Dockerfile
+  - name: hermetic
+    value: true
+  - name: prefetch-input
+    value:
+      - type: rpm
+      - type: pip
+        allow_binary: true
   pipelineSpec:
     description: |
       This pipeline is ideal for building container images from a Containerfile while maintaining trust after pipeline customization.
