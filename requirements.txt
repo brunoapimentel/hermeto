@@ -570,9 +570,9 @@ pyarn==0.3.0 \
     --hash=sha256:8f799d94a9b2fd4bd54185149d8745187c7ededcde98576ff70bf0823fd8a710 \
     --hash=sha256:e8eaed3ae80c1891a8ea7f6b7538c049a79dd7e7d3b4279f275699b3477b38c2
     # via hermeto (pyproject.toml)
-pydantic==2.11.1 \
-    --hash=sha256:442557d2910e75c991c39f4b4ab18963d57b9b55122c8b2a9cd176d8c29ce968 \
-    --hash=sha256:5b6c415eee9f8123a14d859be0c84363fec6b1feb6b688d6435801230b56e0b8
+pydantic==2.11.3 \
+    --hash=sha256:7471657138c16adad9322fe3070c0116dd6c3ad8d649300e3cbdfe91f4db4ec3 \
+    --hash=sha256:a082753436a07f9ba1289c6ffa01cd93db3548776088aa917cc43b63f68fa60f
     # via
     #   hermeto (pyproject.toml)
     #   pypi-simple
