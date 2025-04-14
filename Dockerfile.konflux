@@ -80,3 +80,11 @@ RUN ln -s /usr/local/lib/corepack/dist/corepack.js /usr/local/bin/corepack && \
     ln -s /venv/bin/hermeto /usr/local/bin/hermeto
 
 ENTRYPOINT ["/usr/local/bin/hermeto"]
+
+LABEL com.redhat.component="hermeto" \
+    description="hermeto" \
+    io.k8s.description="hermeto" \
+    io.k8s.display-name="hermeto" \
+    io.openshift.tags="hermeto" \
+    name="hermeto" \
+    summary="hermeto"
