@@ -33,7 +33,6 @@ dependencies = [
   "tenacity",
   "tomlkit",
   "typer",
-  "createrepo-c",
   "packageurl-python"
 ]
 [project.optional-dependencies]
