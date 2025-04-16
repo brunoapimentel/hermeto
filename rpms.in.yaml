@@ -1,8 +1,9 @@
 contentOrigin:
   repofiles:
-    - ./ubi.repo
+    - ./redhat.repo
 packages:
   - cargo
+  - createrepo_c
   - git-core
   - gcc
   - jq
@@ -13,3 +14,4 @@ packages:
   - rubygem-bundler
   - rubygem-json
   - subscription-manager
+

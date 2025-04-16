@@ -8,8 +8,6 @@ calver==2025.4.2
     # via trove-classifiers
 cython==3.0.12
     # via pyyaml
-distro==1.9.0
-    # via scikit-build
 expandvars==1.0.0
     # via
     #   frozenlist
@@ -29,11 +27,9 @@ hatch-fancy-pypi-readme==24.1.0
     # via
     #   attrs
     #   pydantic
-    #   scikit-build
 hatch-vcs==0.4.0
     # via
     #   attrs
-    #   scikit-build
     #   urllib3
 hatchling==1.27.0
     # via
@@ -47,7 +43,6 @@ hatchling==1.27.0
     #   pydantic
     #   pygments
     #   pypi-simple
-    #   scikit-build
     #   soupsieve
     #   typing-inspection
     #   urllib3
@@ -60,7 +55,6 @@ mypy==1.14.0
 packaging==24.2
     # via
     #   hatchling
-    #   scikit-build
     #   setuptools-scm
 pathspec==0.12.1
     # via hatchling
@@ -73,8 +67,6 @@ poetry-core==2.1.2
     #   aiohappyeyeballs
     #   rich
     #   tomlkit
-scikit-build==0.18.1
-    # via createrepo-c
 semantic-version==2.10.0
     # via setuptools-rust
 setuptools-rust==1.11.1
@@ -99,7 +91,6 @@ typing-extensions==4.12.2
 wheel==0.45.1
     # via
     #   async-timeout
-    #   createrepo-c
     #   maturin
     #   pyarn
     #   pyyaml
@@ -113,8 +104,6 @@ setuptools==78.1.0
     #   async-timeout
     #   calver
     #   charset-normalizer
-    #   createrepo-c
-    #   distro
     #   frozenlist
     #   gitpython
     #   maturin
