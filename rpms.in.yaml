@@ -3,6 +3,7 @@ contentOrigin:
     - ./redhat.repo
 packages:
   - cargo
+  - cmake
   - createrepo_c
   - git-core
   - gcc

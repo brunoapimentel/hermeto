@@ -38,6 +38,7 @@ WORKDIR /src
 RUN dnf -y install \
     --setopt install_weak_deps=0 \
     --nodocs \
+    cmake \
     gcc \
     # not a build dependency, but we copy the binary to the final image
     cargo \
