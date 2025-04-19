@@ -1,4 +1,4 @@
 setuptools==78.1.0
 setuptools-scm==8.2.0
-tomli==2.0.2
+tomli==2.2.1
 
