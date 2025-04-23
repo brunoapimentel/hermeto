@@ -1,4 +1,4 @@
-FROM registry.access.redhat.com/ubi9/ubi@sha256:a1804302f6f53e04cc1c6b20bc2204d5c9ae6e5a664174b38fbeeb30f7983d4e as ubi
+FROM registry.fedoraproject.org/fedora-minimal@sha256:e99a4925f65519d2434639366217d0039932842c4f1ff2c732da24f5cd326b5c as fedora
 FROM docker.io/library/golang:1.20.0-bullseye as golang_120
 FROM docker.io/library/golang:1.21.0-bullseye as golang_121
 FROM docker.io/library/node:23.11.0-bullseye as node
@@ -6,16 +6,16 @@ FROM docker.io/library/node:23.11.0-bullseye as node
 ########################
 # PREPARE OUR BASE IMAGE
 ########################
-FROM ubi as base
+FROM fedora as base
 RUN dnf -y install \
     --setopt install_weak_deps=0 \
     --nodocs \
+    createrepo_c \
     git-core \
     jq \
     python3 \
     rubygem-bundler \
-    rubygem-json \
-    subscription-manager && \
+    rubygem-json && \
     dnf clean all
 
 ###############
@@ -55,6 +55,9 @@ COPY --from=golang_121 /usr/local/go /usr/local/go/go1.21
 COPY --from=node /usr/local/lib/node_modules/corepack /usr/local/lib/corepack
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 COPY --from=builder /usr/bin/cargo /usr/bin/cargo
+COPY --from=builder /usr/lib64/libgit2.so.1.9.0 /usr/lib64/libgit2.so.1.9.0
+COPY --from=builder /usr/lib64/libssh2.so.1.0.1 /usr/lib64/libssh2.so.1.0.1
+COPY --from=builder /usr/lib64/libllhttp.so.9.2.1 /usr/lib64/libllhttp.so.9.2.1
 COPY --from=builder /venv /venv
 
 # link corepack, yarn, and go to standard PATH location
@@ -63,6 +66,9 @@ RUN ln -s /usr/local/lib/corepack/dist/corepack.js /usr/local/bin/corepack && \
     ln -s /usr/local/go/go1.21/bin/go /usr/local/bin/go && \
     ln -s /venv/bin/createrepo_c /usr/local/bin/createrepo_c && \
     ln -s /venv/bin/cachi2 /usr/local/bin/cachi2 && \
-    ln -s /venv/bin/hermeto /usr/local/bin/hermeto
+    ln -s /venv/bin/hermeto /usr/local/bin/hermeto && \
+    ln -s /usr/lib64/libgit2.so.1.9.0 /usr/lib64/libgit2.so.1.9 && \
+    ln -s /usr/lib64/libssh2.so.1.0.1 /usr/lib64/libssh2.so.1 && \
+    ln -s /usr/lib64/libllhttp.so.9.2.1 /usr/lib64/libllhttp.so.9.2
 
 ENTRYPOINT ["/usr/local/bin/hermeto"]
