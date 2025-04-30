@@ -1,0 +1,62 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: hermeto-integration-test
+spec:
+  params:
+  - name: SNAPSHOT
+    description: The JSON string of the Snapshot under test
+    type: string   
+  tasks:
+  - name: test-built-image
+    params:
+    - name: SNAPSHOT
+      value: $(params.SNAPSHOT)
+    taskSpec:
+      params:
+      - name: SNAPSHOT
+      steps:
+      - image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+        env:
+          - name: SNAPSHOT
+            value: "$(params.SNAPSHOT)"
+          - name: COMPONENT_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.labels['appstudio.openshift.io/component']
+          - name: HERMETO_TEST_LOCAL_PYPISERVER
+            value: 'true'
+          - name: HERMETO_TEST_LOCAL_DNF_SERVER
+            value: 'true'
+        workingDir: /workspace          
+        script: |
+          #!/bin/shq
+
+          # Exit on errors, treat unset variables as errors, print commands
+          set -eux
+
+          # Install the required dependencies
+          microdnf install -y pip git jq
+
+          # Extract the component container image from the SNAPSHOT JSON data
+          CONTAINER_IMAGE=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .containerImage' <<< "${SNAPSHOT}")
+          GIT_REPO=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .source.git.url' <<< "${SNAPSHOT}")
+          GIT_REF=$(jq -r --arg component_name "${COMPONENT_NAME}" '.components[] | select(.name == $component_name) | .source.git.revision' <<< "${SNAPSHOT}")
+
+          # Log the extracted variables
+          echo "  CONTAINER_IMAGE: ${CONTAINER_IMAGE}"
+          echo "  GIT_REPO: ${GIT_REPO}"
+          echo "  GIT_REF: ${GIT_REF}"
+
+          # Set which image will be used to run the integration tests
+          export HERMETO_IMAGE="$CONTAINER_IMAGE"
+
+          # Clone the source code
+          git clone "$GIT_REPO" sources
+          cd sources
+          git checkout "$GIT_REF"
+          git config --global --add safe.directory "*"
+
+          # Prepare and run integration tests
+          pip install -r requirements-extras.txt
+          nox -s integration-tests
