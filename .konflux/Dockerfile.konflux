@@ -1,7 +1,7 @@
 # This file is meant to be built hermetically in a Konflux instance.
 # It can only be build locally if the prefetching of dependencies is properly configured.
 
-FROM registry.access.redhat.com/ubi9/ubi@sha256:a1804302f6f53e04cc1c6b20bc2204d5c9ae6e5a664174b38fbeeb30f7983d4e as ubi
+FROM registry.access.redhat.com/ubi9/ubi@sha256:304b50df1ea4db9706d8a30f4bbf26f582936ebc80c7e075c72ff2af99292a54 as ubi
 
 ###########################
 # PREPARE GENERIC ARTIFACTS
