@@ -594,9 +594,9 @@ pybuild-deps==0.5.0 \
     --hash=sha256:4cc5b8634b5aac371755a7ff33da1f47cf528938e419c1fb943cc95a8c3337e7 \
     --hash=sha256:fa488db42cc53f93926ccb55ef56fb300fbd7769d31a56ebc7f83f11e28aeac8
     # via hermeto (pyproject.toml)
-pydantic==2.11.1 \
-    --hash=sha256:442557d2910e75c991c39f4b4ab18963d57b9b55122c8b2a9cd176d8c29ce968 \
-    --hash=sha256:5b6c415eee9f8123a14d859be0c84363fec6b1feb6b688d6435801230b56e0b8
+pydantic==2.11.5 \
+    --hash=sha256:7f853db3d0ce78ce8bbb148c401c2cdd6431b3473c0cdff2755c7690952a7b7a \
+    --hash=sha256:f9c26ba06f9747749ca1e5c94d6a85cb84254577553c8785576fd38fa64dc0f7
     # via
     #   hermeto (pyproject.toml)
     #   pypi-simple
