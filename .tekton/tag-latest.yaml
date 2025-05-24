@@ -29,7 +29,7 @@ spec:
             - name: revision
           steps:
             - name: tag-with-latest
-              image: registry.access.redhat.com/ubi9/skopeo:latest@sha256:23c9ed4af1f42614bdc56309452568b2110a67f23102f42f6a6582a63b63dcdb
+              image: registry.access.redhat.com/ubi9/skopeo:latest@sha256:df66d59b6ef68f352af64c6fe2ba430cf531c866280ef22842da1eb6dac3aa11
               script: |
                 #!/usr/bin/env bash
                 SRC_REF="quay.io/konflux-ci/hermeto:$(params.revision)"
