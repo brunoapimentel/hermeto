@@ -61,6 +61,37 @@ spec:
         - name: kind
           value: task
         resolver: bundles
+    - name: trigger-integration-test
+      taskSpec:
+        steps:
+        - name: call-github-api
+          image: registry.access.redhat.com/ubi9-minimal:latest
+          env:
+          - name: IMAGE_URL
+            value: $(tasks.build-image-index.results.IMAGE_URL)
+          - name: SOURCE_BRANCH
+            value: '{{source_branch}}'
+          - name: REPO_OWNER
+            value: '{{repo_owner}}'
+          - name: REPO_NAME
+            value: '{{repo_name}}'
+          - name: GITHUB_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: github-workflow-token
+                key: token
+          script: |
+            #!/usr/bin/env sh
+
+            echo "Triggering the test on $REPO_OWNER/$REPO_NAME for $IMAGE_URL using the $SOURCE_BRANCH branch"
+
+            curl -L \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/actions/workflows/konflux-integration-test.yaml/dispatches" \
+            -d "{\"ref\":\"$SOURCE_BRANCH\",\"inputs\":{\"image\":\"$IMAGE_URL\"}}"
     params:
     - description: Source Repository URL
       name: git-url
