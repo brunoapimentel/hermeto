@@ -84,12 +84,13 @@ class ContainerImage:
     def __init__(self, repository: str):
         """Initialize ContainerImage object with associated repository."""
         self.repository = repository
+        self.image_reference = f"{self.repository.replace("/", "_")}-image"
 
     def __enter__(self) -> "ContainerImage":
         return self
 
     def pull_image(self) -> None:
-        cmd = ["podman", "pull", self.repository]
+        cmd = ["buildah", "pull", self.repository]
         output, exit_code = run_cmd(cmd)
         if exit_code != 0:
             raise RuntimeError(f"Pulling {self.repository} failed. Output:{output}")
@@ -111,11 +112,12 @@ class ContainerImage:
             podman_flags.extend(["-v", f"{src}:{dest}:z"])
         if net:
             podman_flags.append(f"--net={net}")
-        image_cmd = ["podman", "run", "--rm", *podman_flags, self.repository] + cmd
+        run_cmd(["buildah", "from", "--name", self.image_reference, self.repository])
+        image_cmd = ["buildah", "run", *podman_flags, "--", self.image_reference] + cmd
         return run_cmd(image_cmd)
 
     def __exit__(self, exc_type: Any, exc_value: Any, exc_traceback: Any) -> None:
-        image_cmd = ["podman", "rmi", "--force", self.repository]
+        image_cmd = ["buildah", "rmi", "--force", self.repository]
         (output, exit_code) = run_cmd(image_cmd)
         if exit_code != 0:
             raise RuntimeError(f"Image deletion failed. Output:{output}")
@@ -142,7 +144,7 @@ class HermetoImage(ContainerImage):
 
 
 def build_image(context_dir: Path, tag: str) -> ContainerImage:
-    return _build_image(["podman", "build", str(context_dir)], tag=tag)
+    return _build_image(context_dir=context_dir, tag=tag)
 
 
 def build_image_for_test_case(
@@ -156,9 +158,7 @@ def build_image_for_test_case(
     # mounts the output of the fetch-deps command and hermeto.env
     output_dir_mount_point = "/tmp"
 
-    cmd = [
-        "podman",
-        "build",
+    flags = [
         "-f",
         str(containerfile_path),
         "-v",
@@ -173,18 +173,21 @@ def build_image_for_test_case(
     # this should be extended to support more archs when we have the means of testing it in our CI
     rpm_repos_path = f"{output_dir}/hermeto-output/deps/rpm/x86_64/repos.d"
     if Path(rpm_repos_path).exists():
-        cmd.extend(
+        flags.extend(
             [
                 "-v",
                 f"{rpm_repos_path}:/etc/yum.repos.d:Z",
             ]
         )
 
-    return _build_image(cmd, tag=f"localhost/{test_case}")
+    return _build_image(context_dir=".", tag=f"localhost/{test_case}", extra_flags=flags)
 
 
-def _build_image(podman_cmd: list[str], *, tag: str) -> ContainerImage:
-    podman_cmd = [*podman_cmd, "--tag", tag]
+def _build_image(context_dir: str, tag: str, extra_flags: Optional[list[str]] = None) -> ContainerImage:
+    if extra_flags is None:
+        extra_flags = []
+
+    podman_cmd = ["buildah", "bud", *extra_flags, "--tag", tag, context_dir]
     (output, exit_code) = run_cmd(podman_cmd)
     if exit_code != 0:
         raise RuntimeError(f"Building image failed. Output:\n{output}")
@@ -377,7 +380,7 @@ def fetch_deps_and_check_output(
         "--output",
         str(output_dir),
     ]
-    cmd = test_params.global_flags + cmd
+    cmd = ["hermeto"] + test_params.global_flags + cmd
     cmd += test_params.flags
 
     cmd.append(json.dumps(test_params.packages))
@@ -463,9 +466,13 @@ def build_image_and_check_cmd(
     """
     output_dir = tmp_path.joinpath(fetch_output_dirname)
 
+    if not check_cmd:
+        check_cmd = ["ls"]
+
     log.info(f"Creating {env_vars_filename} file")
     env_vars_file = tmp_path.joinpath(env_vars_filename)
     cmd = [
+        "hermeto",
         "generate-env",
         str(output_dir),
         "--output",
@@ -478,6 +485,7 @@ def build_image_and_check_cmd(
 
     log.info("Injecting project files")
     cmd = [
+        "hermeto",
         "inject-files",
         str(output_dir),
         "--for-output-dir",

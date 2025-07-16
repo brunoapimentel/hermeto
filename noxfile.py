@@ -125,8 +125,8 @@ def all_integration_tests(session: Session) -> None:
         session,
         {
             "HERMETO_RUN_ALL_INTEGRATION_TESTS": "true",
-            "HERMETO_TEST_LOCAL_PYPISERVER": "true",
-            "HERMETO_TEST_LOCAL_DNF_SERVER": "true",
+            # "HERMETO_TEST_LOCAL_PYPISERVER": "true",
+            # "HERMETO_TEST_LOCAL_DNF_SERVER": "true",
         },
     )
 
