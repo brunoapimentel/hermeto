@@ -53,7 +53,8 @@ def hermeto_image() -> utils.HermetoImage:
         repo_root = Path(__file__).parents[2]
         utils.build_image(repo_root, tag=image_ref)
 
-    hermeto = utils.HermetoImage(image_ref)
+    container_runtime = utils.get_container_runtime()
+    hermeto = utils.HermetoImage(image_ref, container_runtime)
     if not image_ref.startswith("localhost/"):
         hermeto.pull_image()
 

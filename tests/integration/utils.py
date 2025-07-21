@@ -65,6 +65,145 @@ CYCLONEDX_SCHEMA_URL = (
 )
 
 
+class ContainerRuntime:
+    """Abstraction layer for container runtime operations (podman/buildah)."""
+
+    def __init__(self, runtime: str = "podman"):
+        """Initialize container runtime.
+
+        :param runtime: Container runtime to use ('podman' or 'buildah')
+        """
+        if runtime not in ("podman", "buildah"):
+            raise ValueError(f"Unsupported container runtime: {runtime}")
+        self.runtime = runtime
+
+    def pull_image(self, repository: str) -> tuple[str, int]:
+        """Pull container image."""
+        cmd = [self.runtime, "pull", repository]
+        return run_cmd(cmd)
+
+    def remove_image(self, repository: str) -> tuple[str, int]:
+        """Remove container image."""
+        if self.runtime == "podman":
+            cmd = ["podman", "rmi", "--force", repository]
+        else:  # buildah
+            cmd = ["buildah", "rmi", repository]
+        return run_cmd(cmd)
+
+    def run_cmd_on_image(
+        self,
+        repository: str,
+        cmd: list[str],
+        tmp_path: Path,
+        mounts: Sequence[tuple[Union[str, os.PathLike[str]], Union[str, os.PathLike[str]]]] = (),
+        net: Optional[str] = None,
+        container_flags: Optional[list[str]] = None,
+    ) -> tuple[str, int]:
+        """Run command on container image."""
+        if container_flags is None:
+            container_flags = []
+
+        if self.runtime == "podman":
+            return self._run_with_podman(repository, cmd, tmp_path, mounts, net, container_flags)
+        else:  # buildah
+            return self._run_with_buildah(repository, cmd, tmp_path, mounts, net, container_flags)
+
+    def _run_with_podman(
+        self,
+        repository: str,
+        cmd: list[str],
+        tmp_path: Path,
+        mounts: Sequence[tuple[Union[str, os.PathLike[str]], Union[str, os.PathLike[str]]]] = (),
+        net: Optional[str] = None,
+        container_flags: Optional[list[str]] = None,
+    ) -> tuple[str, int]:
+        """Run command using podman."""
+        if container_flags is None:
+            container_flags = []
+
+        container_flags.extend(["-v", f"{tmp_path}:{tmp_path}:z"])
+        for src, dest in mounts:
+            container_flags.extend(["-v", f"{src}:{dest}:z"])
+        if net:
+            container_flags.append(f"--net={net}")
+
+        image_cmd = ["podman", "run", "--rm", *container_flags, repository] + cmd
+        return run_cmd(image_cmd)
+
+    def _run_with_buildah(
+        self,
+        repository: str,
+        cmd: list[str],
+        tmp_path: Path,
+        mounts: Sequence[tuple[Union[str, os.PathLike[str]], Union[str, os.PathLike[str]]]] = (),
+        net: Optional[str] = None,
+        container_flags: Optional[list[str]] = None,
+    ) -> tuple[str, int]:
+        """Run command using buildah."""
+        log.info('running buildah ' + str(cmd))
+        if container_flags is None:
+            container_flags = []
+
+        # Create a working container from the image
+        from_cmd = ["buildah", "from", repository]
+        output, exit_code = run_cmd(from_cmd)
+        if exit_code != 0:
+            return output, exit_code
+
+        # Extract container ID from output (usually the last line)
+        container_id = output.strip().split('\n')[-1]
+
+        # Get the entrypoint of the image
+        output, exit_code = run_cmd(["buildah", "inspect", repository])
+        parsed_output = json.loads(output)
+
+        image_cmd = parsed_output["Docker"]["config"]["Cmd"]
+        image_entrypoint = parsed_output["Docker"]["config"]["Entrypoint"]
+
+        cmd = cmd or image_cmd
+
+        if image_entrypoint:
+            cmd = image_entrypoint + cmd
+
+        try:
+            # Mount volumes if needed
+            mount_args = []
+            mount_args.extend(["-v", f"{tmp_path}:{tmp_path}:z"])
+            for src, dest in mounts:
+                mount_args.extend(["-v", f"{src}:{dest}:z"])
+
+            # Add network flag if specified
+            network_args = []
+            if net:
+                network_args.extend(["--network", net])
+
+            # Run the command in the container
+            run_cmd_args = ["buildah", "run"] + mount_args + network_args + container_flags + [container_id, "--"] + cmd
+            return run_cmd(run_cmd_args)
+        finally:
+            # Clean up the working container
+            rm_cmd = ["buildah", "rm", container_id]
+            run_cmd(rm_cmd)  # Ignore errors during cleanup
+
+    def build_image(self, build_cmd: list[str], tag: str) -> tuple[str, int]:
+        """Build container image."""
+        # Replace 'podman' with the actual runtime in the build command
+        if build_cmd[0] == "podman":
+            build_cmd = [self.runtime] + build_cmd[1:]
+        elif build_cmd[0] != self.runtime:
+            # If it's not podman or our runtime, assume it's meant to be our runtime
+            build_cmd = [self.runtime] + build_cmd[1:]
+
+        build_cmd = [*build_cmd, "--tag", tag]
+        return run_cmd(build_cmd)
+
+
+def get_container_runtime() -> ContainerRuntime:
+    """Get the configured container runtime."""
+    runtime_name = os.getenv("HERMETO_CONTAINER_RUNTIME", "podman").lower()
+    return ContainerRuntime(runtime_name)
+
+
 @dataclass
 class TestParameters:
     branch: str
@@ -81,16 +220,16 @@ StrPath = Union[str, os.PathLike[str]]
 
 
 class ContainerImage:
-    def __init__(self, repository: str):
+    def __init__(self, repository: str, runtime: Optional[ContainerRuntime] = None):
         """Initialize ContainerImage object with associated repository."""
         self.repository = repository
+        self.runtime = runtime or get_container_runtime()
 
     def __enter__(self) -> "ContainerImage":
         return self
 
     def pull_image(self) -> None:
-        cmd = ["podman", "pull", self.repository]
-        output, exit_code = run_cmd(cmd)
+        output, exit_code = self.runtime.pull_image(self.repository)
         if exit_code != 0:
             raise RuntimeError(f"Pulling {self.repository} failed. Output:{output}")
         log.info("Pulled image: %s.", self.repository)
@@ -103,20 +242,23 @@ class ContainerImage:
         net: Optional[str] = None,
         podman_flags: Optional[list[str]] = None,
     ) -> tuple[str, int]:
-        if podman_flags is None:
-            podman_flags = []
+        """Run command on container image.
 
-        podman_flags.extend(["-v", f"{tmp_path}:{tmp_path}:z"])
-        for src, dest in mounts:
-            podman_flags.extend(["-v", f"{src}:{dest}:z"])
-        if net:
-            podman_flags.append(f"--net={net}")
-        image_cmd = ["podman", "run", "--rm", *podman_flags, self.repository] + cmd
-        return run_cmd(image_cmd)
+        :param cmd: Command to run inside the container
+        :param tmp_path: Temporary path for mounting
+        :param mounts: Additional volume mounts as (source, destination) tuples
+        :param net: Network configuration
+        :param podman_flags: Container flags (works with both podman and buildah)
+        :return: Tuple of (output, exit_code)
+        """
+        # Note: keeping 'podman_flags' parameter name for backward compatibility
+        container_flags = podman_flags or []
+        return self.runtime.run_cmd_on_image(
+            self.repository, cmd, tmp_path, mounts, net, container_flags
+        )
 
     def __exit__(self, exc_type: Any, exc_value: Any, exc_traceback: Any) -> None:
-        image_cmd = ["podman", "rmi", "--force", self.repository]
-        (output, exit_code) = run_cmd(image_cmd)
+        output, exit_code = self.runtime.remove_image(self.repository)
         if exit_code != 0:
             raise RuntimeError(f"Image deletion failed. Output:{output}")
 
@@ -142,7 +284,9 @@ class HermetoImage(ContainerImage):
 
 
 def build_image(context_dir: Path, tag: str) -> ContainerImage:
-    return _build_image(["podman", "build", str(context_dir)], tag=tag)
+    runtime = get_container_runtime()
+    build_cmd = [runtime.runtime, "build", str(context_dir)]
+    return _build_image(build_cmd, tag=tag, runtime=runtime)
 
 
 def build_image_for_test_case(
@@ -151,13 +295,15 @@ def build_image_for_test_case(
     containerfile_path: Path,
     test_case: str,
 ) -> ContainerImage:
+    runtime = get_container_runtime()
+
     # mounts the source code of the test case
     source_dir_mount_point = "/src"
     # mounts the output of the fetch-deps command and hermeto.env
     output_dir_mount_point = "/tmp"
 
     cmd = [
-        "podman",
+        runtime.runtime,
         "build",
         "-f",
         str(containerfile_path),
@@ -180,15 +326,17 @@ def build_image_for_test_case(
             ]
         )
 
-    return _build_image(cmd, tag=f"localhost/{test_case}")
+    return _build_image(cmd, tag=f"localhost/{test_case}", runtime=runtime)
 
 
-def _build_image(podman_cmd: list[str], *, tag: str) -> ContainerImage:
-    podman_cmd = [*podman_cmd, "--tag", tag]
-    (output, exit_code) = run_cmd(podman_cmd)
+def _build_image(build_cmd: list[str], *, tag: str, runtime: Optional[ContainerRuntime] = None) -> ContainerImage:
+    if runtime is None:
+        runtime = get_container_runtime()
+
+    output, exit_code = runtime.build_image(build_cmd, tag)
     if exit_code != 0:
         raise RuntimeError(f"Building image failed. Output:\n{output}")
-    return ContainerImage(tag)
+    return ContainerImage(tag, runtime)
 
 
 def run_cmd(cmd: Union[list[str], str], **subprocess_kwargs: Any) -> tuple[str, int]:
@@ -360,6 +508,7 @@ def fetch_deps_and_check_output(
     :param test_data_dir: Relative path to expected output test data
     :param hermeto_image: ContainerImage instance with Hermeto image
     :param mounts: Additional volumes to be mounted to the image
+    :param podman_flags: Container flags (works with both podman and buildah)
     :return: None
     """
     repo = Repo(test_repo_dir)
@@ -459,6 +608,7 @@ def build_image_and_check_cmd(
     :param check_cmd: Command to be run on image to check provided sources
     :param expected_cmd_output: Expected output of check_cmd
     :param hermeto_image: ContainerImage instance with Hermeto image
+    :param podman_flags: Container flags (works with both podman and buildah)
     :return: None
     """
     output_dir = tmp_path.joinpath(fetch_output_dirname)
@@ -713,3 +863,43 @@ def determine_integration_tests_to_skip() -> Any:
     elif just_some_package_managers_were_affected_by(changes):
         return SUPPORTED_PMS - affected_package_managers(changes)
     return set()
+
+
+def test_container_runtime_configuration() -> None:
+    """Test that container runtime can be configured correctly."""
+    # Test default runtime
+    default_runtime = get_container_runtime()
+    assert default_runtime.runtime == "podman"
+
+    # Test explicit podman configuration
+    old_env = os.environ.get("HERMETO_CONTAINER_RUNTIME")
+    try:
+        os.environ["HERMETO_CONTAINER_RUNTIME"] = "podman"
+        podman_runtime = get_container_runtime()
+        assert podman_runtime.runtime == "podman"
+
+        # Test buildah configuration
+        os.environ["HERMETO_CONTAINER_RUNTIME"] = "buildah"
+        buildah_runtime = get_container_runtime()
+        assert buildah_runtime.runtime == "buildah"
+
+        # Test invalid runtime
+        os.environ["HERMETO_CONTAINER_RUNTIME"] = "invalid"
+        try:
+            get_container_runtime()
+            assert False, "Should have raised ValueError for invalid runtime"
+        except ValueError as e:
+            assert "Unsupported container runtime: invalid" in str(e)
+
+    finally:
+        # Restore original environment
+        if old_env is not None:
+            os.environ["HERMETO_CONTAINER_RUNTIME"] = old_env
+        elif "HERMETO_CONTAINER_RUNTIME" in os.environ:
+            del os.environ["HERMETO_CONTAINER_RUNTIME"]
+
+
+if __name__ == "__main__":
+    # Quick self-test
+    test_container_runtime_configuration()
+    print("Container runtime configuration test passed!")
