@@ -5,8 +5,14 @@ import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 
-from typing import Any, Optional, Union
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Any, Optional, Union
 
+if TYPE_CHECKING:
+    # Import conditionally so that we don't have to introduce a runtime dependency on
+    # typing-extensions. This is only imported when a type-checker is running.
+    # In python 3.11, it can be imported directly from the stdlib 'typing' module.
+    from typing_extensions import assert_never
 
 log = logging.getLogger(__name__)
 
@@ -36,57 +42,17 @@ def run_cmd(cmd: Union[list[str], str], **subprocess_kwargs: Any) -> tuple[str, 
     return process.stdout, process.returncode
 
 
-class ContainerRuntime:
-    """Abstraction layer for container runtime operations (podman/buildah)."""
-
-    def __init__(self, runtime: str = "podman"):
-        """Initialize container runtime.
-
-        :param runtime: Container runtime to use ('podman' or 'buildah')
-        """
-        if runtime not in ("podman", "buildah"):
-            raise ValueError(f"Unsupported container runtime: {runtime}")
-        self.runtime = runtime
-
+class ContainerRuntime(ABC):
+    """Abstraction layer for container runtime operations."""
+    def __init__(self):
+        """Initialize container runtime."""
+        self.runtime = ""
+    
+    @abstractmethod
     def pull_image(self, repository: str) -> tuple[str, int]:
         """Pull container image."""
-        cmd = [self.runtime, "pull", repository]
 
-        output, exit_code = run_cmd(cmd)
-
-        if exit_code == 0 and self.runtime == "buildah":
-            self._configure_buildah_container(repository)
-
-        return output, exit_code
-
-    def _configure_buildah_container(self, repository: str) -> None:
-        # Create a working container from the image
-        from_cmd = ["buildah", "from", repository]
-        output, exit_code = run_cmd(from_cmd)
-        if exit_code != 0:
-            return output, exit_code
-
-        # Extract container ID from output (usually the last line)
-        self._container_id = output.strip().split('\n')[-1]
-
-        # Get the entrypoint of the image
-        output, exit_code = run_cmd(["buildah", "inspect", repository])
-        parsed_output = json.loads(output)
-
-        self._image_cmd = parsed_output["Docker"]["config"]["Cmd"]
-        self._image_entrypoint = parsed_output["Docker"]["config"]["Entrypoint"]
-
-    def remove_image(self, repository: str) -> tuple[str, int]:
-        """Remove container image."""
-        if self.runtime == "podman":
-            cmd = ["podman", "rmi", "--force", repository]
-        else:
-            # Clean up the working container
-            run_cmd(["buildah", "rm", self._container_id])
-            cmd = ["buildah", "rmi", repository]
-
-        return run_cmd(cmd)
-
+    @abstractmethod
     def run_cmd_on_image(
         self,
         repository: str,
@@ -97,15 +63,31 @@ class ContainerRuntime:
         container_flags: Optional[list[str]] = None,
     ) -> tuple[str, int]:
         """Run command on container image."""
-        if container_flags is None:
-            container_flags = []
 
-        if self.runtime == "podman":
-            return self._run_with_podman(repository, cmd, tmp_path, mounts, net, container_flags)
-        else:  # buildah
-            return self._run_with_buildah(repository, cmd, tmp_path, mounts, net, container_flags)
+    @abstractmethod
+    def build_image(self, build_cmd: list[str], tag: str) -> tuple[str, int]:
+        """Build container image."""
 
-    def _run_with_podman(
+    @abstractmethod
+    def remove_image(self, repository: str) -> tuple[str, int]:
+        """Remove container image.""" 
+
+
+class PodmanRuntime(ContainerRuntime):
+    def __init__(self):
+        """Initialize container runtime."""
+        self.runtime = "podman"
+
+    def build_image(self, build_cmd: list[str], tag: str) -> tuple[str, int]:
+        """Build container image."""
+        build_cmd = [self.runtime, *build_cmd, "--tag", tag]
+        return run_cmd(build_cmd)
+    
+    def pull_image(self, repository: str) -> tuple[str, int]:
+        """Pull container image."""
+        return run_cmd([self.runtime, "pull", repository])
+
+    def run_cmd_on_image(
         self,
         repository: str,
         cmd: list[str],
@@ -126,8 +108,52 @@ class ContainerRuntime:
 
         image_cmd = ["podman", "run", "--rm", *container_flags, repository] + cmd
         return run_cmd(image_cmd)
+    
+    def remove_image(self, repository: str) -> tuple[str, int]:
+        """Remove container image."""
+        return run_cmd(["podman", "rmi", "--force", repository])
 
-    def _run_with_buildah(
+
+class BuildahRuntime(ContainerRuntime):
+    def __init__(self):
+        """Initialize container runtime.
+
+        :param runtime: Container runtime to use ('podman' or 'buildah')
+        """
+        self.runtime = "buildah"
+        self._image_cmd = ""
+        self._image_entrypoint = ""
+        self._container_id = ""
+    
+    def build_image(self, build_cmd: list[str], tag: str) -> tuple[str, int]:
+        """Build container image."""
+        return run_cmd([self.runtime, "--tag", tag, *build_cmd])
+
+    def _configure_buildah_container(self, repository: str) -> str:
+        # Create a working container from the image
+        from_cmd = ["buildah", "from", repository]
+        output, exit_code = run_cmd(from_cmd)
+        if exit_code != 0:
+            return output, exit_code
+
+        # Extract container ID from output (usually the last line)
+        return output.strip().split('\n')[-1]
+
+    def _get_image_config(self, repository: str) -> tuple[str, str]:
+                # Get the entrypoint of the image
+        output, exit_code = run_cmd(["buildah", "inspect", repository])
+        parsed_output = json.loads(output)
+
+        cmd = parsed_output["Docker"]["config"]["Cmd"]
+        entrypoint = parsed_output["Docker"]["config"]["Entrypoint"]
+
+        return cmd, entrypoint
+
+    def pull_image(self, repository: str) -> tuple[str, int]:
+        """Pull container image."""
+        return run_cmd([self.runtime, "pull", repository])
+
+    def run_cmd_on_image(
         self,
         repository: str,
         cmd: list[str],
@@ -140,11 +166,15 @@ class ContainerRuntime:
         if container_flags is None:
             container_flags = []
 
+        container_id = self._configure_buildah_container(repository)
+        image_cmd, image_entrypoint = self._get_image_config(repository)
+
         # fallback to the image's cmd if not provided
-        cmd = cmd or self._image_cmd
+        cmd = cmd or image_cmd
+
         # if the image has an entrypoint, prepend it to the command
-        if self._image_entrypoint:
-            cmd = self._image_entrypoint + cmd
+        if image_entrypoint:
+            cmd = image_entrypoint + cmd
 
         # Mount volumes if needed
         mount_args = []
@@ -158,16 +188,26 @@ class ContainerRuntime:
             network_args.extend(["--network", net])
 
         # Run the command in the container
-        run_cmd_args = ["buildah", "run"] + mount_args + network_args + container_flags + [self._container_id, "--"] + cmd
-        return run_cmd(run_cmd_args)
-
-    def build_image(self, build_cmd: list[str], tag: str) -> tuple[str, int]:
-        """Build container image."""
-        build_cmd = [self.runtime, *build_cmd, "--tag", tag]
-        return run_cmd(build_cmd)
+        try:
+            run_cmd_args = ["buildah", "run"] + mount_args + network_args + container_flags + [container_id, "--"] + cmd
+            return run_cmd(run_cmd_args)
+        finally:
+            run_cmd(["buildah", "rm", container_id])
+    
+    def remove_image(self, repository: str) -> tuple[str, int]:
+        """Remove container image."""
+        # Clean up the working container
+        return run_cmd(["buildah", "rmi", repository])
 
 
 def get_container_runtime() -> ContainerRuntime:
     """Get the configured container runtime."""
     runtime_name = os.getenv("HERMETO_CONTAINER_RUNTIME", "podman").lower()
-    return ContainerRuntime(runtime_name)
+
+    if runtime_name == "podman":
+        return PodmanRuntime()
+    
+    if runtime_name == "buildah":
+        return BuildahRuntime()
+
+    assert_never(runtime_name)
