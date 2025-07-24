@@ -1,0 +1,99 @@
+kind: Pipeline
+apiVersion: tekton.dev/v1beta1
+metadata:
+  name: konflux-release-integration-tests
+spec:
+  params:
+    - description: 'Snapshot of the application'
+      name: SNAPSHOT
+      type: string
+  tasks:
+    - name: run-integration-tests
+      params:
+        - name: SNAPSHOT
+          value: "$(params.SNAPSHOT)"
+      taskSpec:
+        volumes:
+        - name: source
+          emptyDir: {}
+        - name: trusted-ca
+          configMap:
+            name: trusted-ca
+            items:
+              - key: ca-bundle.crt
+                path: ca-bundle.crt
+            optional: true
+        steps:
+          - name: clone
+            image: registry.access.redhat.com/ubi9/ubi:latest
+            env:
+              - name: PARAM_SNAPSHOT
+                value: "$(params.SNAPSHOT)"
+            script: |
+              #!/bin/bash
+              set -ex
+
+              ls -a
+              pwd
+
+              ls /source
+
+              # Install necessary libraries
+              dnf -y install jq git
+              
+              # Treat snapshot data
+              echo -e "Running tests for the snapshot:\n ${PARAM_SNAPSHOT}"
+              COMPONENT=$(jq -c '.components[0]' <<< "${PARAM_SNAPSHOT}")
+
+              CONTAINER_IMAGE=$(echo "${COMPONENT}" | jq -r '.containerImage')
+              GIT_URL=$(echo "${COMPONENT}" | jq -r '.source.git.url')
+              GIT_SHA=$(echo "${COMPONENT}" | jq -r '.source.git.revision')
+
+              # Clone and checkout
+              git config --global http.sslCAInfo "/mnt/trusted-ca/ca-bundle.crt"
+              git clone "$GIT_URL" /source --recurse-submodules
+              git config --global --add safe.directory /source
+              cd /source
+              git checkout "$GIT_SHA" --recurse-submodules
+
+              # Pass the container image name to the following step
+              echo "$CONTAINER_IMAGE" > /source/containerImage.txt 
+            volumeMounts:
+            - name: source
+              mountPath: /source
+            - name: trusted-ca
+              mountPath: /mnt/trusted-ca
+              readOnly: true
+          - name: run-tests
+            env:
+            - name: BUILDAH_ISOLATION
+              value: chroot
+            - name: STORAGE_DRIVER
+              value: vfs
+            image: quay.io/konflux-ci/buildah-task:latest@sha256:b82d465a06c926882d02b721cf8a8476048711332749f39926a01089cf85a3f9
+            script: |
+              #!/bin/bash
+              set -ex
+
+              CONTAINER_IMAGE=$(cat /source/containerImage.txt)
+
+              chown root:root /var/lib/containers
+
+              # Prepare environment
+              dnf install -y git
+              python3 -m venv /var/tmp/venv
+              /var/tmp/venv/bin/pip3 install --upgrade pip nox tomlkit
+
+              sed -i 's|--log-cli-level=WARNING|--log-cli-level=DEBUG|i' "/source/hermeto/noxfile.py"
+
+              cd /source/hermeto
+
+              HERMETO_TEST_CONTAINER_ENGINE=buildah HERMETO_IMAGE="$CONTAINER_IMAGE" \
+              /var/tmp/venv/bin/nox -s integration-tests
+            volumeMounts:
+            - name: source
+              mountPath: /source
+            securityContext:
+              capabilities:
+                add:
+                  - SETFCAP
