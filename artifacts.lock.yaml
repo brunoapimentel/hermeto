@@ -1,0 +1,9 @@
+metadata:
+  version: "1.0"
+artifacts:
+  - download_url: "https://nodejs.org/download/release/v24.4.1/node-v24.4.1-linux-x64.tar.gz"
+    checksum: "sha256:063f2eb299ba60e3fc9b424d8e87d0e2f6be84b39bdeadc421ee2865914c498b"
+    filename: "nodejs-amd64.tar.gz"
+  - download_url: "https://nodejs.org/download/release/v24.4.1/node-v24.4.1-linux-arm64.tar.gz"
+    checksum: "sha256:fde5421e2652e51199bc678e1e6c4d80bbb4c55337ec0a82206568517e9792ef"
+    filename: "nodejs-arm64.tar.gz"
