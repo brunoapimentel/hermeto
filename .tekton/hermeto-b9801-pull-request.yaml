@@ -30,6 +30,15 @@ spec:
   - name: build-platforms
     value:
     - linux/x86_64
+    - linux/arm64
+  - name: hermetic
+    value: true
+  - name: prefetch-input
+    value:
+      - type: pip
+        allow_binary: true
+      - type: generic
+      - type: rpm
   - name: dockerfile
     value: Dockerfile
   pipelineSpec:
@@ -252,7 +261,7 @@ spec:
         - name: name
           value: buildah-remote-oci-ta
         - name: bundle
-          value: quay.io/konflux-ci/tekton-catalog/task-buildah-remote-oci-ta:0.7@sha256:fe66734cde6713f530b19e222680acc5e0d6a533866429659ea8561b746d9ce7
+          value: quay.io/bpimente/test-images@sha256:e8d6e5a610183120332b72f938b5d75c971ee549bc52fb8267554d8ee24c21fb
         - name: kind
           value: task
         resolver: bundles
