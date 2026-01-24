@@ -1352,9 +1352,9 @@ pygments==2.19.2 \
     #   mkdocs-material
     #   pytest
     #   rich
-pymdown-extensions==10.17.2 \
-    --hash=sha256:26bb3d7688e651606260c90fb46409fbda70bf9fdc3623c7868643a1aeee4713 \
-    --hash=sha256:bffae79a2e8b9e44aef0d813583a8fea63457b7a23643a43988055b7b79b4992
+pymdown-extensions==10.20.1 \
+    --hash=sha256:24af7feacbca56504b313b7b418c4f5e1317bb5fea60f03d57be7fcc40912aa0 \
+    --hash=sha256:e7e39c865727338d434b55f1dd8da51febcffcaebd6e1a0b9c836243f660740a
     # via mkdocs-material
 pypi-simple==1.8.0 \
     --hash=sha256:466f2fcd0d723822aae3a0ccfda22e68ff8cd7f50aae68911946ab1dd1d587e1 \
