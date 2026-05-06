@@ -151,14 +151,18 @@ def _parse_plugins(lockfile: MavenLockfile) -> list[MavenArtifact]:
     return result
 
 
-def _parse_parents(lockfile: MavenLockfile) -> list[MavenArtifact]:
-    """Parse the parent POMs from the lockfile."""
+def _parse_root_pom(lockfile: MavenLockfile) -> list[MavenArtifact]:
+    """Parse the root POM from the lockfile."""
     result: list[MavenArtifact] = []
     root_pom = lockfile.pom.get("parent", {})
-    if not root_pom:
-        return result
+    if root_pom:
+        _extract_artifact(root_pom, result)
 
-    _extract_artifact(root_pom, result)
+    boms = lockfile.pom.get("boms", [])
+
+    for bom in boms:
+        _extract_artifact(bom, result)
+
     return result
 
 
@@ -168,5 +172,5 @@ def parse_maven_artifacts(lockfile: MavenLockfile) -> set[MavenArtifact]:
 
     The same resolved URL can appear multiple times (e.g., shared transitive deps across plugins).
     """
-    merged = _parse_dependencies(lockfile) + _parse_plugins(lockfile) + _parse_parents(lockfile)
+    merged = _parse_dependencies(lockfile) + _parse_plugins(lockfile) + _parse_root_pom(lockfile)
     return set(merged)
